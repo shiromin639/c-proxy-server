@@ -41,9 +41,6 @@ void proxy_destroy(proxy_t *proxy) {
 }
 
 int proxy_start(proxy_t *proxy) {
-    char port_str[16];
-    snprintf(port_str, sizeof(port_str), "%s", proxy->listen_port);
-
     struct addrinfo hints = {
         .ai_family = AF_INET,
         .ai_socktype = SOCK_STREAM,
@@ -51,8 +48,8 @@ int proxy_start(proxy_t *proxy) {
     };
     struct addrinfo *res = NULL;
 
-    int gai_err = getaddrinfo(NULL, port_str, &hints, &res);
-    if (gai_err != 0) {
+    int gai_err = getaddrinfo(NULL, proxy->listen_port, &hints, &res);
+    if (gai_err == -1) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(gai_err));
         return -1;
     }
@@ -67,14 +64,14 @@ int proxy_start(proxy_t *proxy) {
     int opt = 1;
     setsockopt(proxy->listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
-    if (bind(proxy->listen_fd, res->ai_addr, res->ai_addrlen) < 0) {
+    if (bind(proxy->listen_fd, res->ai_addr, res->ai_addrlen) == -1) {
         perror("bind");
         freeaddrinfo(res);
         return -1;
     }
     freeaddrinfo(res);
 
-    if (listen(proxy->listen_fd, 128) < 0) {
+    if (listen(proxy->listen_fd, 128) == -1) {
         perror("listen");
         return -1;
     }
@@ -85,8 +82,7 @@ int proxy_start(proxy_t *proxy) {
     event_loop_add(proxy->loop, proxy->listen_fd, EPOLLIN, listen_conn);
     event_loop_set_handler(proxy->loop, proxy_handle_event);
 
-    printf("Proxy listening on :%s → %s:%s\n",
-           proxy->listen_port, proxy->backend_host, proxy->backend_port);
+    printf("Proxy listening on :%s → %s:%s\n", proxy->listen_port, proxy->backend_host, proxy->backend_port);
 
     event_loop_run(proxy->loop);
     return 0;
@@ -99,7 +95,6 @@ void proxy_stop(proxy_t *proxy) {
 
 void proxy_handle_event(connection_t *conn, uint32_t events) {
     if (conn->fd == g_proxy->listen_fd) {
-
         proxy_accept_client(g_proxy);
         return;
     }
@@ -130,7 +125,7 @@ void proxy_accept_client(proxy_t *proxy) {
     socklen_t addrlen = sizeof(addr);
 
     int fd = accept(proxy->listen_fd, (struct sockaddr *)&addr, &addrlen);
-    if (fd < 0) {
+    if (fd == -1) {
         if (errno != EAGAIN && errno != EWOULDBLOCK)
             perror("accept");
         return;
@@ -147,8 +142,8 @@ void proxy_accept_client(proxy_t *proxy) {
 
 
 void proxy_client_read(connection_t *conn) {
-    char tmp[4096];
-    ssize_t n = read(conn->fd, tmp, sizeof(tmp));
+    char buff[4096];
+    ssize_t n = recv(conn->fd, buff, sizeof(buff), 0);
 
     if (n <= 0) {
         if (n == 0 || (errno != EAGAIN && errno != EWOULDBLOCK))
@@ -156,7 +151,7 @@ void proxy_client_read(connection_t *conn) {
         return;
     }
 
-    if (buffer_append(&conn->read_buf, tmp, (size_t)n) < 0) {
+    if (buffer_append(&conn->read_buf, buff, (size_t)n) < 0) {
         fprintf(stderr, "Buffer overflow on client fd=%d\n", conn->fd);
         proxy_close_pair(conn);
         return;
@@ -263,8 +258,7 @@ void proxy_backend_write(connection_t *backend) {
     size_t pending = buffer_len(&backend->write_buf);
     if (pending == 0) return;
 
-    ssize_t n = write(backend->fd,
-                      buffer_data(&backend->write_buf), pending);
+    ssize_t n = send(backend->fd, buffer_data(&backend->write_buf), pending, 0);
     if (n < 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK) {
             perror("write to backend");
@@ -280,13 +274,12 @@ void proxy_backend_write(connection_t *backend) {
         event_loop_mod(g_proxy->loop, backend->fd, EPOLLIN);
         printf("[>] request forwarded to backend fd=%d\n", backend->fd);
     }
-    /* else: more data to send, stay subscribed to EPOLLOUT */
 }
 
 
 void proxy_backend_read(connection_t *backend) {
-    char tmp[4096];
-    ssize_t n = read(backend->fd, tmp, sizeof(tmp));
+    char buff[4096];
+    ssize_t n = recv(backend->fd, buff, sizeof(buff), 0);
 
     if (n <= 0) {
         if (n == 0 || (errno != EAGAIN && errno != EWOULDBLOCK))
@@ -294,7 +287,7 @@ void proxy_backend_read(connection_t *backend) {
         return;
     }
 
-    if (buffer_append(&backend->read_buf, tmp, (size_t)n) < 0) {
+    if (buffer_append(&backend->read_buf, buff, (size_t)n) < 0) {
         fprintf(stderr, "Buffer overflow on backend fd=%d\n", backend->fd);
         proxy_close_pair(backend);
         return;
@@ -321,7 +314,7 @@ void proxy_client_write(connection_t *conn) {
     size_t pending = buffer_len(&conn->write_buf);
     if (pending == 0) return;
 
-    ssize_t n = write(conn->fd, buffer_data(&conn->write_buf), pending);
+    ssize_t n = send(conn->fd, buffer_data(&conn->write_buf), pending, 0);
     if (n < 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK) {
             perror("write to client");
@@ -336,14 +329,12 @@ void proxy_client_write(connection_t *conn) {
         printf("[<] response sent to client fd=%d\n", conn->fd);
         proxy_close_pair(conn);
     }
-    /* else: stay subscribed to EPOLLOUT for next write */
 }
 
 
 void proxy_close_pair(connection_t *conn) {
     connection_t *peer = conn->peer;
 
-    /* Detach both sides before freeing anything */
     conn->peer = NULL;
     if (peer) peer->peer = NULL;
 

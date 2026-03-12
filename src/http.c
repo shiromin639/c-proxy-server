@@ -71,10 +71,15 @@ int http_get_uri(const char *data, char *buf, size_t buf_size) {
 int http_create_error_response(int status, char *buf, size_t buf_size) {
     const char *msg;
     switch (status) {
-        case 502: msg = "Bad Gateway";          break;
-        case 503: msg = "Service Unavailable";  break;
-        case 504: msg = "Gateway Timeout";      break;
-        default:  msg = "Internal Server Error"; status = 500; break;
+        case 502: msg = "Bad Gateway";          
+            break;
+        case 503: msg = "Service Unavailable";  
+            break;
+        case 504: msg = "Gateway Timeout";      
+            break;
+        default:  msg = "Internal Server Error"; 
+            status = 500; 
+            break;
     }
 
     char body[256];

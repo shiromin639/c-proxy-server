@@ -12,14 +12,14 @@
 proxy_t *g_proxy = NULL;
 
 
-proxy_t *proxy_create(int listen_port, const char *backend_host, int backend_port) {
+proxy_t *proxy_create(const char *listen_port, const char *backend_host, const char *backend_port) {
     proxy_t *proxy = calloc(1, sizeof(proxy_t));
     if (!proxy) return NULL;
 
     proxy->backend_host = strdup(backend_host);
-    proxy->backend_port = backend_port;
-    proxy->listen_port  = listen_port;
-    proxy->listen_fd    = -1;
+    proxy->backend_port = strdup(backend_port);
+    proxy->listen_port = strdup(listen_port);
+    proxy->listen_fd = -1;
 
     proxy->loop = event_loop_create();
     if (!proxy->loop) {
@@ -42,12 +42,12 @@ void proxy_destroy(proxy_t *proxy) {
 
 int proxy_start(proxy_t *proxy) {
     char port_str[16];
-    snprintf(port_str, sizeof(port_str), "%d", proxy->listen_port);
+    snprintf(port_str, sizeof(port_str), "%s", proxy->listen_port);
 
     struct addrinfo hints = {
-        .ai_family   = AF_INET,
+        .ai_family = AF_INET,
         .ai_socktype = SOCK_STREAM,
-        .ai_flags    = AI_PASSIVE,
+        .ai_flags = AI_PASSIVE,
     };
     struct addrinfo *res = NULL;
 
@@ -85,7 +85,7 @@ int proxy_start(proxy_t *proxy) {
     event_loop_add(proxy->loop, proxy->listen_fd, EPOLLIN, listen_conn);
     event_loop_set_handler(proxy->loop, proxy_handle_event);
 
-    printf("Proxy listening on :%d → %s:%d\n",
+    printf("Proxy listening on :%s → %s:%s\n",
            proxy->listen_port, proxy->backend_host, proxy->backend_port);
 
     event_loop_run(proxy->loop);
@@ -99,6 +99,7 @@ void proxy_stop(proxy_t *proxy) {
 
 void proxy_handle_event(connection_t *conn, uint32_t events) {
     if (conn->fd == g_proxy->listen_fd) {
+
         proxy_accept_client(g_proxy);
         return;
     }
@@ -194,22 +195,27 @@ static void send_error_to_client(connection_t *client, int status) {
 }
 
 void proxy_connect_backend(connection_t *client) {
-    int bfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (bfd < 0) {
+    struct addrinfo *res;
+    struct addrinfo hints = {
+        .ai_family = AF_INET,
+        .ai_socktype = SOCK_STREAM,
+        .ai_flags = AI_PASSIVE
+    };
+    
+    int err = getaddrinfo(g_proxy->backend_host, g_proxy->backend_port, &hints, &res);
+    if (err == -1) {
+        freeaddrinfo(res);
+        perror("get backend addrinfo");
+        return;
+    }
+    int bfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (bfd == -1) {
         perror("socket");
         send_error_to_client(client, 502);
         return;
     }
-
     set_nonblocking(bfd);
-
-    struct sockaddr_in addr = {
-        .sin_family = AF_INET,
-        .sin_port   = htons(g_proxy->backend_port),
-    };
-    inet_pton(AF_INET, g_proxy->backend_host, &addr.sin_addr);
-
-    int ret = connect(bfd, (struct sockaddr *)&addr, sizeof(addr));
+    int ret = connect(bfd, res->ai_addr, res->ai_addrlen);
     if (ret < 0 && errno != EINPROGRESS) {
         perror("connect");
         close(bfd);

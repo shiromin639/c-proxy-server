@@ -5,15 +5,15 @@
 
 typedef struct {
     int listen_fd;
-    int listen_port;
+    char *listen_port;
     event_loop_t *loop;
     char *backend_host;
-    int   backend_port;
+    char *backend_port;
 } proxy_t;
 
 extern proxy_t *g_proxy;
 
-proxy_t *proxy_create(int listen_port, const char *backend_host, int backend_port);
+proxy_t *proxy_create(const char *listen_port, const char *backend_host, const char *backend_port);
 void     proxy_destroy(proxy_t *proxy);
 int      proxy_start(proxy_t *proxy);
 void     proxy_stop(proxy_t *proxy);

@@ -79,15 +79,14 @@ void event_loop_run(event_loop_t *loop) {
         int nfds = epoll_wait(loop->epoll_fd, loop->events, MAX_EVENTS, -1);
         if (nfds == -1) {
             if (errno == EINTR) {
-                    continue; // A signal woke us up (like SIGTERM), loop around and let loop->running stop it naturally
+                    continue; 
             }
             perror("epoll_wait");
             break;
         }
         for (int i = 0; i < nfds; i++) {
-            int fd             = loop->events[i].data.fd;
-            uint32_t ev        = loop->events[i].events;
-            /* Re-look up the connection: a previous iteration may have freed it */
+            int fd = loop->events[i].data.fd;
+            uint32_t ev = loop->events[i].events;
             connection_t *conn = event_loop_find_conn(loop, fd);
             if (conn && loop->handler)
                 loop->handler(conn, ev);

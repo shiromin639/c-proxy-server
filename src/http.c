@@ -22,7 +22,7 @@ size_t http_parse_content_length(const char *data, size_t len) {
     const char *cl = strcasestr(data, "content-length:");
     if (!cl) return 0;
 
-    cl += 15; /* skip "content-length:" */
+    cl += 15; 
     while (*cl == ' ') cl++;
     return (size_t)atol(cl);
 }
@@ -32,7 +32,7 @@ int http_response_is_complete(const char *data, size_t len) {
     if (!end) return 0;
 
     size_t content_length = http_parse_content_length(data, len);
-    size_t headers_len    = (size_t)(end - data) + 4;
+    size_t headers_len = (size_t)(end - data) + 4;
 
     if (content_length > 0)
         return (len >= headers_len + content_length);
